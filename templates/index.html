@@ -1,24 +1,23 @@
 <!DOCTYPE html>
-<html lang="pl">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Transkrypcja audio</title>
+    <title>Audio Transcription and Summarization</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
     <link rel="stylesheet" href="https://code.getmdl.io/1.3.0/material.indigo-pink.min.css">
     <script defer src="https://code.getmdl.io/1.3.0/material.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
+        .page-content {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            padding: 20px;
+        }
         .demo-card-wide.mdl-card {
-            width: 512px;
-            margin: 20px auto;
-        }
-        .demo-card-wide > .mdl-card__title {
-            color: #fff;
-            height: 176px;
-            background: url('https://getmdl.io/assets/demos/welcome_card.jpg') center / cover;
-        }
-        .demo-card-wide > .mdl-card__menu {
-            color: #fff;
+            width: 45%;
+            margin: 10px;
         }
         #transcription, #summary {
             width: 100%;
@@ -47,26 +46,42 @@
             width: 300px;
             z-index: 4;
         }
+        .full-width {
+            width: 92% !important;
+        }
+        .mdl-card__title {
+            background-color: #3f51b5;
+            color: white;
+        }
+        #summaryRendered {
+            width: 100%;
+            min-height: 200px;
+            margin-top: 20px;
+            border: 1px solid #ddd;
+            padding: 10px;
+            overflow-y: auto;
+            background-color: #f9f9f9;
+        }
     </style>
 </head>
 <body>
     <div class="mdl-layout mdl-js-layout mdl-layout--fixed-header">
         <header class="mdl-layout__header">
             <div class="mdl-layout__header-row">
-                <span class="mdl-layout-title">Transkrypcja audio</span>
+                <span class="mdl-layout-title">Audio Transcription and Summarization</span>
             </div>
         </header>
         <main class="mdl-layout__content">
             <div class="page-content">
                 <div class="demo-card-wide mdl-card mdl-shadow--2dp">
                     <div class="mdl-card__title">
-                        <h2 class="mdl-card__title-text">Wgraj plik audio</h2>
+                        <h2 class="mdl-card__title-text">Upload Audio File</h2>
                     </div>
                     <div class="mdl-card__supporting-text">
                         <form method="POST" enctype="multipart/form-data" id="upload-form">
                             <div class="file-input-container">
                                 <div class="mdl-textfield mdl-js-textfield mdl-textfield--file">
-                                    <input class="mdl-textfield__input" placeholder="Wybierz plik audio" type="text" id="uploadFile" readonly/>
+                                    <input class="mdl-textfield__input" placeholder="Choose audio file" type="text" id="uploadFile" readonly/>
                                 </div>
                                 <div class="mdl-button mdl-button--primary mdl-button--icon mdl-button--file">
                                     <i class="material-icons">attach_file</i>
@@ -75,10 +90,10 @@
                             </div>
                             <div class="mdl-textfield mdl-js-textfield mdl-textfield--floating-label">
                                 <input class="mdl-textfield__input" type="text" id="api_key" name="api_key">
-                                <label class="mdl-textfield__label" for="api_key">Klucz API</label>
+                                <label class="mdl-textfield__label" for="api_key">API Key</label>
                             </div>
                             <button class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent" type="submit">
-                                Transkrybuj
+                                Transcribe
                             </button>
                         </form>
                     </div>
@@ -87,16 +102,23 @@
                     </div>
                 </div>
                 <div class="demo-card-wide mdl-card mdl-shadow--2dp">
+                    <div class="mdl-card__title">
+                        <h2 class="mdl-card__title-text">Transcript</h2>
+                    </div>
                     <div class="mdl-card__supporting-text">
-                        <textarea id="transcription" class="mdl-textfield__input" readonly rows="3" placeholder="Tutaj pojawi się transkrypcja..."></textarea>
+                        <textarea id="transcription" class="mdl-textfield__input" readonly rows="3" placeholder="Transcription will appear here..."></textarea>
                         <button id="summarizeBtn" class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent" style="margin-top: 10px;" disabled>
-                            Wykonaj podsumowanie
+                            Summarize
                         </button>
                     </div>
                 </div>
-                <div class="demo-card-wide mdl-card mdl-shadow--2dp">
+                <div class="demo-card-wide mdl-card mdl-shadow--2dp full-width">
+                    <div class="mdl-card__title">
+                        <h2 class="mdl-card__title-text">Summary</h2>
+                    </div>
                     <div class="mdl-card__supporting-text">
-                        <textarea id="summary" class="mdl-textfield__input" readonly rows="3" placeholder="Tutaj pojawi się podsumowanie..."></textarea>
+                        <textarea id="summary" class="mdl-textfield__input" readonly rows="3" placeholder="Summary will appear here..."></textarea>
+                        <div id="summaryRendered"></div>
                     </div>
                 </div>
             </div>
@@ -111,19 +133,17 @@
         const uploadFile = document.getElementById('uploadFile');
         const summarizeBtn = document.getElementById('summarizeBtn');
         const summaryTextarea = document.getElementById('summary');
+        const summaryRendered = document.getElementById('summaryRendered');
         const apiKeyInput = document.getElementById('api_key');
 
-        // Funkcja do zapisywania klucza API
         function saveApiKey(apiKey) {
             localStorage.setItem('openai_api_key', apiKey);
         }
 
-        // Funkcja do wczytywania klucza API
         function loadApiKey() {
             return localStorage.getItem('openai_api_key');
         }
 
-        // Wczytaj zapisany klucz API przy ładowaniu strony
         window.addEventListener('load', () => {
             const savedApiKey = loadApiKey();
             if (savedApiKey) {
@@ -137,9 +157,8 @@
 
         form.addEventListener('submit', (event) => {
             event.preventDefault();
-            statusDiv.textContent = 'Wysyłanie pliku...';
+            statusDiv.textContent = 'Uploading file...';
 
-            // Zapisz klucz API przed wysłaniem formularza
             saveApiKey(apiKeyInput.value);
 
             const formData = new FormData(form);
@@ -150,15 +169,15 @@
             .then(response => response.json())
             .then(data => {
                 if (data.error) {
-                    statusDiv.textContent = `Błąd: ${data.error}`;
+                    statusDiv.textContent = `Error: ${data.error}`;
                 } else {
-                    statusDiv.textContent = 'Transkrypcja zakończona';
+                    statusDiv.textContent = 'Transcription completed';
                     transcriptionTextarea.value = data.transcription;
                     summarizeBtn.disabled = false;
                 }
             })
             .catch(error => {
-                statusDiv.textContent = `Błąd: ${error}`;
+                statusDiv.textContent = `Error: ${error}`;
             });
         });
 
@@ -166,7 +185,7 @@
             const transcription = transcriptionTextarea.value;
             const apiKey = apiKeyInput.value;
 
-            statusDiv.textContent = 'Generowanie podsumowania...';
+            statusDiv.textContent = 'Generating summary...';
 
             fetch('/summarize', {
                 method: 'POST',
@@ -181,14 +200,15 @@
             .then(response => response.json())
             .then(data => {
                 if (data.error) {
-                    statusDiv.textContent = `Błąd: ${data.error}`;
+                    statusDiv.textContent = `Error: ${data.error}`;
                 } else {
-                    statusDiv.textContent = 'Podsumowanie zakończone';
+                    statusDiv.textContent = 'Summary completed';
                     summaryTextarea.value = data.summary;
+                    summaryRendered.innerHTML = marked.parse(data.summary);
                 }
             })
             .catch(error => {
-                statusDiv.textContent = `Błąd: ${error}`;
+                statusDiv.textContent = `Error: ${error}`;
             });
         });
     </script>

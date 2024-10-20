@@ -61,10 +61,10 @@ def summarize():
     client = OpenAI(api_key=api_key)
     try:
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o",
             messages=[
-                {"role": "system", "content": "Jesteś asystentem, który tworzy zwięzłe podsumowania."},
-                {"role": "user", "content": f"Wykonaj podsumowanie poniższej transkrypcji:\n\n{transcription}"}
+                {"role": "system", "content": "Ty jesteś asystentem, który specjalizuje się w tworzeniu czytelnych i zwięzłych notatek akademickich. Twoim celem jest przekształcenie transkrypcji wykładów lub innych dokumentów akademickich w formę, która ułatwi naukę i przygotowanie do egzaminów. Wspierasz tworzenie map myśli, list punktowanych oraz innych czytelnych formatów. Zachowaj kluczowe informacje i porządkuj dane w logiczne struktury."},
+                {"role": "user", "content": f"Jestem w trakcie nauki do egzaminu i potrzebuję czytelnych notatek bazujących na poniższej transkrypcji. Proszę przekształć treść w zwięzłą formę, która będzie przydatna do powtórek, taką jak mapa myśli lub lista punktów. Oto transkrypcja, z której należy stworzyć notatki:\n\n{transcription}"}
             ]
         )
         summary = response.choices[0].message.content
@@ -73,4 +73,4 @@ def summarize():
         return jsonify({'error': f"Wystąpił błąd podczas generowania podsumowania: {str(e)}"}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, port=8001)
+    app.run(debug=True, host='0.0.0.0', port=8001)

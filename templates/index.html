@@ -111,6 +111,25 @@
         const uploadFile = document.getElementById('uploadFile');
         const summarizeBtn = document.getElementById('summarizeBtn');
         const summaryTextarea = document.getElementById('summary');
+        const apiKeyInput = document.getElementById('api_key');
+
+        // Funkcja do zapisywania klucza API
+        function saveApiKey(apiKey) {
+            localStorage.setItem('openai_api_key', apiKey);
+        }
+
+        // Funkcja do wczytywania klucza API
+        function loadApiKey() {
+            return localStorage.getItem('openai_api_key');
+        }
+
+        // Wczytaj zapisany klucz API przy ładowaniu strony
+        window.addEventListener('load', () => {
+            const savedApiKey = loadApiKey();
+            if (savedApiKey) {
+                apiKeyInput.value = savedApiKey;
+            }
+        });
 
         uploadBtn.addEventListener('change', function() {
             uploadFile.value = this.files[0].name;
@@ -119,6 +138,9 @@
         form.addEventListener('submit', (event) => {
             event.preventDefault();
             statusDiv.textContent = 'Wysyłanie pliku...';
+
+            // Zapisz klucz API przed wysłaniem formularza
+            saveApiKey(apiKeyInput.value);
 
             const formData = new FormData(form);
             fetch('/', {
@@ -142,7 +164,7 @@
 
         summarizeBtn.addEventListener('click', () => {
             const transcription = transcriptionTextarea.value;
-            const apiKey = document.getElementById('api_key').value;
+            const apiKey = apiKeyInput.value;
 
             statusDiv.textContent = 'Generowanie podsumowania...';
 

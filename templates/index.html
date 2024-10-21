@@ -162,7 +162,16 @@
             saveApiKey(apiKeyInput.value);
 
             const formData = new FormData(form);
-            fetch('/', {
+
+            function fetchWithTimeout(url, options, timeout = 300000) {  // 5 minut timeout
+                return Promise.race([
+                    fetch(url, options),
+                    new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error('Request timed out')), timeout)
+                    )
+                ]);
+            }
+            fetchWithTimeout('/', {
                 method: 'POST',
                 body: formData
             })

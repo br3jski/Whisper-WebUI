@@ -2,13 +2,14 @@ import os
 from flask import Flask, render_template, request, jsonify
 from openai import OpenAI
 from werkzeug.utils import secure_filename
+from werkzeug.serving import run_simple
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'mp3', 'mp4', 'mpeg', 'mpga', 'm4a', 'wav', 'webm'}
-
+app.config['TIMEOUT'] = 300  # 5 mins
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
@@ -16,7 +17,7 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def transcribe_audio(file_path, api_key):
-    client = OpenAI(api_key=api_key)
+    client = OpenAI(api_key=api_key, timeout=300)  # 5 minut timeout
     try:
         with open(file_path, "rb") as audio_file:
             transcription = client.audio.transcriptions.create(

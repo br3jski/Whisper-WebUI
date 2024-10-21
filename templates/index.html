@@ -166,7 +166,12 @@
                 method: 'POST',
                 body: formData
             })
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
             .then(data => {
                 if (data.error) {
                     statusDiv.textContent = `Error: ${data.error}`;
@@ -177,7 +182,7 @@
                 }
             })
             .catch(error => {
-                statusDiv.textContent = `Error: ${error}`;
+                statusDiv.textContent = `Error: ${error.message}`;
             });
         });
 

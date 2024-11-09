@@ -238,23 +238,23 @@
 
         async function compressAudio(audioBlob) {
             const inputFileName = 'input.webm';
-            const outputFileName = 'output.mp3';
+            const outputFileName = 'output.wav';
 
             ffmpeg.FS('writeFile', inputFileName, await fetchFile(audioBlob));
 
-            await ffmpeg.run('-i', inputFileName, '-c:a', 'libmp3lame', '-b:a', '96k', outputFileName);
+            await ffmpeg.run('-i', inputFileName, '-c:a', 'pcm_s16le', '-ar', '16000', outputFileName);
 
             const compressedData = ffmpeg.FS('readFile', outputFileName);
-            const compressedBlob = new Blob([compressedData.buffer], { type: 'audio/mp3' });
+            const compressedBlob = new Blob([compressedData.buffer], { type: 'audio/wav' });
 
             audioPlayback.src = URL.createObjectURL(compressedBlob);
             audioPlayback.style.display = "block";
 
-            const compressedFile = new File([compressedBlob], "compressed_audio.mp3", { type: 'audio/mp3' });
+            const compressedFile = new File([compressedBlob], "compressed_audio.wav", { type: 'audio/wav' });
             const dataTransfer = new DataTransfer();
             dataTransfer.items.add(compressedFile);
             uploadBtn.files = dataTransfer.files;
-            uploadFile.value = "compressed_audio.mp3";
+            uploadFile.value = "compressed_audio.wav";
 
             ffmpeg.FS('unlink', inputFileName);
             ffmpeg.FS('unlink', outputFileName);

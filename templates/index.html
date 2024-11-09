@@ -10,6 +10,8 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js"></script
     <style>
         .page-content {
             display: flex;
@@ -105,7 +107,7 @@
                                 <input class="mdl-textfield__input" type="text" id="api_key" name="api_key">
                                 <label class="mdl-textfield__label" for="api_key">API Key</label>
                             </div>
-                            <button class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent" type="submit">
+                            <button class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent" type="submit" id="transcribeBtn">
                                 Transcribe
                             </button>
                             <button id="recordButton" class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent" type="button">
@@ -156,13 +158,20 @@
         const recordButton = document.getElementById('recordButton');
         const recordingStatus = document.getElementById('recordingStatus');
         const audioPlayback = document.getElementById('audioPlayback');
+        const transcribeBtn = document.getElementById('transcribeBtn');
     
         let mediaRecorder;
         let audioChunks = [];
         let recordingStartTime;
-        let ffmpeg;
         let recordedAudioFile = null;
-    
+        let ffmpeg;
+
+        (async function loadFFmpeg() {
+            ffmpeg = createFFmpeg({ log: true });
+            await ffmpeg.load();
+            console.log('FFmpeg loaded');
+        })();
+
         function saveApiKey(apiKey) {
             localStorage.setItem('openai_api_key', apiKey);
         }
@@ -197,6 +206,9 @@
         }
     
         function startRecording() {
+            recordedAudioFile = null; // Reset recorded audio file
+            audioChunks = []; // Reset audio chunks
+            transcribeBtn.disabled = true; // Disable transcribe button during recording
             navigator.mediaDevices.getUserMedia({ audio: true })
                 .then(stream => {
                     mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
@@ -234,16 +246,36 @@
                 recordButton.textContent = "Start Recording";
                 const duration = Math.round((Date.now() - recordingStartTime) / 1000);
                 recordingStatus.textContent = `Recording stopped. Duration: ${duration} seconds`;
-                audioChunks = [];
+                // Enable transcribe button after a short delay
+                setTimeout(() => {
+                    transcribeBtn.disabled = false;
+                }, 1000);
             }
+        }
+        
+        mediaRecorder.addEventListener("stop", async () => {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            await compressAudio(audioBlob);
+            stream.getTracks().forEach(track => track.stop());
+        });
+
+        async function fetchFile(file) {
+            const response = await fetch(URL.createObjectURL(file));
+            const buffer = await response.arrayBuffer();
+            return new Uint8Array(buffer);
         }
     
         async function compressAudio(audioBlob) {
+            if (!ffmpeg.isLoaded()) {
+                console.log('FFmpeg is not loaded. Loading...');
+                await ffmpeg.load();
+            }
+
             const inputFileName = 'input.webm';
             const outputFileName = 'output.m4a';
-    
+
             ffmpeg.FS('writeFile', inputFileName, await fetchFile(audioBlob));
-    
+
             await ffmpeg.run(
                 '-i', inputFileName,
                 '-c:a', 'aac',
@@ -251,16 +283,18 @@
                 '-ar', '16000',
                 outputFileName
             );
-    
+
             const compressedData = ffmpeg.FS('readFile', outputFileName);
             const compressedBlob = new Blob([compressedData.buffer], { type: 'audio/m4a' });
-    
+
             audioPlayback.src = URL.createObjectURL(compressedBlob);
             audioPlayback.style.display = "block";
-    
+
             recordedAudioFile = new File([compressedBlob], "recorded_audio.m4a", { type: 'audio/m4a' });
             uploadFile.value = "recorded_audio.m4a";
-    
+
+            console.log('Recorded audio file created:', recordedAudioFile);
+
             ffmpeg.FS('unlink', inputFileName);
             ffmpeg.FS('unlink', outputFileName);
         }
@@ -273,9 +307,14 @@
     
             const formData = new FormData(form);
     
+            console.log('recordedAudioFile:', recordedAudioFile);
+            console.log('formData before:', formData.get('audio'));
+    
             if (recordedAudioFile) {
-                formData.set('audio', recordedAudioFile);
+                formData.set('audio', recordedAudioFile, recordedAudioFile.name);
             }
+    
+            console.log('formData after:', formData.get('audio'));
     
             // Log the file being uploaded
             const file = formData.get('audio');

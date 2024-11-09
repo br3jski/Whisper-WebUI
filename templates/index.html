@@ -62,6 +62,17 @@
             overflow-y: auto;
             background-color: #f9f9f9;
         }
+        #recordButton {
+            margin-top: 10px;
+            margin-right: 10px;
+        }
+        #recordingStatus {
+            margin-left: 10px;
+        }
+        #audioPlayback {
+            margin-top: 10px;
+            width: 100%;
+        }
     </style>
 </head>
 <body>
@@ -75,7 +86,7 @@
             <div class="page-content">
                 <div class="demo-card-wide mdl-card mdl-shadow--2dp">
                     <div class="mdl-card__title">
-                        <h2 class="mdl-card__title-text">Upload Audio File</h2>
+                        <h2 class="mdl-card__title-text">Upload or Record Audio</h2>
                     </div>
                     <div class="mdl-card__supporting-text">
                         <form method="POST" enctype="multipart/form-data" id="upload-form">
@@ -95,7 +106,12 @@
                             <button class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent" type="submit">
                                 Transcribe
                             </button>
+                            <button id="recordButton" class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent" type="button">
+                                Start Recording
+                            </button>
+                            <span id="recordingStatus"></span>
                         </form>
+                        <audio id="audioPlayback" controls style="display: none;"></audio>
                     </div>
                     <div class="mdl-card__actions mdl-card--border">
                         <div id="status"></div>
@@ -135,6 +151,13 @@
         const summaryTextarea = document.getElementById('summary');
         const summaryRendered = document.getElementById('summaryRendered');
         const apiKeyInput = document.getElementById('api_key');
+        const recordButton = document.getElementById('recordButton');
+        const recordingStatus = document.getElementById('recordingStatus');
+        const audioPlayback = document.getElementById('audioPlayback');
+
+        let mediaRecorder;
+        let audioChunks = [];
+        let recordingStartTime;
 
         function saveApiKey(apiKey) {
             localStorage.setItem('openai_api_key', apiKey);
@@ -155,6 +178,68 @@
             uploadFile.value = this.files[0].name;
         });
 
+        recordButton.addEventListener('click', toggleRecording);
+
+        function toggleRecording() {
+            if (mediaRecorder && mediaRecorder.state === "recording") {
+                stopRecording();
+            } else {
+                startRecording();
+            }
+        }
+
+        function startRecording() {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    mediaRecorder = new MediaRecorder(stream);
+                    mediaRecorder.start();
+
+                    recordingStartTime = Date.now();
+                    recordButton.textContent = "Stop Recording";
+                    recordingStatus.textContent = "Recording...";
+
+                    mediaRecorder.addEventListener("dataavailable", event => {
+                        audioChunks.push(event.data);
+                    });
+
+                    mediaRecorder.addEventListener("stop", () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                        audioPlayback.src = URL.createObjectURL(audioBlob);
+                        audioPlayback.style.display = "block";
+
+                        // Prepare file for submission
+                        const audioFile = new File([audioBlob], "recorded_audio.wav", { type: 'audio/wav' });
+                        const dataTransfer = new DataTransfer();
+                        dataTransfer.items.add(audioFile);
+                        uploadBtn.files = dataTransfer.files;
+                        uploadFile.value = "recorded_audio.wav";
+
+                        stream.getTracks().forEach(track => track.stop());
+                    });
+
+                    // Set a timer to stop recording after 45 minutes
+                    setTimeout(() => {
+                        if (mediaRecorder.state === "recording") {
+                            stopRecording();
+                        }
+                    }, 45 * 60 * 1000);
+                })
+                .catch(error => {
+                    console.error("Error accessing the microphone:", error);
+                    recordingStatus.textContent = "Error: Unable to access the microphone";
+                });
+        }
+
+        function stopRecording() {
+            if (mediaRecorder) {
+                mediaRecorder.stop();
+                recordButton.textContent = "Start Recording";
+                const duration = Math.round((Date.now() - recordingStartTime) / 1000);
+                recordingStatus.textContent = `Recording stopped. Duration: ${duration} seconds`;
+                audioChunks = [];
+            }
+        }
+
         form.addEventListener('submit', (event) => {
             event.preventDefault();
             statusDiv.textContent = 'Uploading file...';
@@ -163,7 +248,7 @@
 
             const formData = new FormData(form);
 
-            function fetchWithTimeout(url, options, timeout = 300000) {  // 5 minut timeout
+            function fetchWithTimeout(url, options, timeout = 300000) {  // 5 minutes timeout
                 return Promise.race([
                     fetch(url, options),
                     new Promise((_, reject) =>

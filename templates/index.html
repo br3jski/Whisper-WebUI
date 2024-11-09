@@ -161,6 +161,7 @@
         let audioChunks = [];
         let recordingStartTime;
         let ffmpeg;
+        let recordedAudioFile = null;
 
         function saveApiKey(apiKey) {
             localStorage.setItem('openai_api_key', apiKey);
@@ -182,6 +183,7 @@
 
         uploadBtn.addEventListener('change', function() {
             uploadFile.value = this.files[0].name;
+            recordedAudioFile = null; // Reset recorded audio when a file is manually selected
         });
 
         recordButton.addEventListener('click', toggleRecording);
@@ -238,23 +240,26 @@
 
         async function compressAudio(audioBlob) {
             const inputFileName = 'input.webm';
-            const outputFileName = 'output.wav';
+            const outputFileName = 'output.m4a';
 
             ffmpeg.FS('writeFile', inputFileName, await fetchFile(audioBlob));
 
-            await ffmpeg.run('-i', inputFileName, '-c:a', 'pcm_s16le', '-ar', '16000', outputFileName);
+            await ffmpeg.run(
+                '-i', inputFileName,
+                '-c:a', 'aac',
+                '-b:a', '64k',
+                '-ar', '16000',
+                outputFileName
+            );
 
             const compressedData = ffmpeg.FS('readFile', outputFileName);
-            const compressedBlob = new Blob([compressedData.buffer], { type: 'audio/wav' });
+            const compressedBlob = new Blob([compressedData.buffer], { type: 'audio/m4a' });
 
             audioPlayback.src = URL.createObjectURL(compressedBlob);
             audioPlayback.style.display = "block";
 
-            const compressedFile = new File([compressedBlob], "compressed_audio.wav", { type: 'audio/wav' });
-            const dataTransfer = new DataTransfer();
-            dataTransfer.items.add(compressedFile);
-            uploadBtn.files = dataTransfer.files;
-            uploadFile.value = "compressed_audio.wav";
+            recordedAudioFile = new File([compressedBlob], "recorded_audio.m4a", { type: 'audio/m4a' });
+            uploadFile.value = "recorded_audio.m4a";
 
             ffmpeg.FS('unlink', inputFileName);
             ffmpeg.FS('unlink', outputFileName);
@@ -267,6 +272,10 @@
             saveApiKey(apiKeyInput.value);
 
             const formData = new FormData(form);
+
+            if (recordedAudioFile) {
+                formData.set('audio', recordedAudioFile);
+            }
 
             // Log the file being uploaded
             const file = formData.get('audio');

@@ -156,38 +156,38 @@
         const recordButton = document.getElementById('recordButton');
         const recordingStatus = document.getElementById('recordingStatus');
         const audioPlayback = document.getElementById('audioPlayback');
-
+    
         let mediaRecorder;
         let audioChunks = [];
         let recordingStartTime;
         let ffmpeg;
         let recordedAudioFile = null;
-
+    
         function saveApiKey(apiKey) {
             localStorage.setItem('openai_api_key', apiKey);
         }
-
+    
         function loadApiKey() {
             return localStorage.getItem('openai_api_key');
         }
-
+    
         window.addEventListener('load', async () => {
             const savedApiKey = loadApiKey();
             if (savedApiKey) {
                 apiKeyInput.value = savedApiKey;
             }
-
+    
             ffmpeg = createFFmpeg({ log: true });
             await ffmpeg.load();
         });
-
+    
         uploadBtn.addEventListener('change', function() {
             uploadFile.value = this.files[0].name;
             recordedAudioFile = null; // Reset recorded audio when a file is manually selected
         });
-
+    
         recordButton.addEventListener('click', toggleRecording);
-
+    
         function toggleRecording() {
             if (mediaRecorder && mediaRecorder.state === "recording") {
                 stopRecording();
@@ -195,27 +195,27 @@
                 startRecording();
             }
         }
-
+    
         function startRecording() {
             navigator.mediaDevices.getUserMedia({ audio: true })
                 .then(stream => {
                     mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
                     mediaRecorder.start();
-
+    
                     recordingStartTime = Date.now();
                     recordButton.textContent = "Stop Recording";
                     recordingStatus.textContent = "Recording...";
-
+    
                     mediaRecorder.addEventListener("dataavailable", event => {
                         audioChunks.push(event.data);
                     });
-
+    
                     mediaRecorder.addEventListener("stop", () => {
                         const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
                         compressAudio(audioBlob);
                         stream.getTracks().forEach(track => track.stop());
                     });
-
+    
                     setTimeout(() => {
                         if (mediaRecorder.state === "recording") {
                             stopRecording();
@@ -227,7 +227,7 @@
                     recordingStatus.textContent = "Error: Unable to access the microphone";
                 });
         }
-
+    
         function stopRecording() {
             if (mediaRecorder) {
                 mediaRecorder.stop();
@@ -237,13 +237,13 @@
                 audioChunks = [];
             }
         }
-
+    
         async function compressAudio(audioBlob) {
             const inputFileName = 'input.webm';
             const outputFileName = 'output.m4a';
-
+    
             ffmpeg.FS('writeFile', inputFileName, await fetchFile(audioBlob));
-
+    
             await ffmpeg.run(
                 '-i', inputFileName,
                 '-c:a', 'aac',
@@ -251,36 +251,36 @@
                 '-ar', '16000',
                 outputFileName
             );
-
+    
             const compressedData = ffmpeg.FS('readFile', outputFileName);
             const compressedBlob = new Blob([compressedData.buffer], { type: 'audio/m4a' });
-
+    
             audioPlayback.src = URL.createObjectURL(compressedBlob);
             audioPlayback.style.display = "block";
-
+    
             recordedAudioFile = new File([compressedBlob], "recorded_audio.m4a", { type: 'audio/m4a' });
             uploadFile.value = "recorded_audio.m4a";
-
+    
             ffmpeg.FS('unlink', inputFileName);
             ffmpeg.FS('unlink', outputFileName);
         }
-
+    
         form.addEventListener('submit', (event) => {
             event.preventDefault();
             statusDiv.textContent = 'Uploading file...';
-
+    
             saveApiKey(apiKeyInput.value);
-
+    
             const formData = new FormData(form);
-
+    
             if (recordedAudioFile) {
                 formData.set('audio', recordedAudioFile);
             }
-
+    
             // Log the file being uploaded
             const file = formData.get('audio');
             console.log('Uploading file:', file.name, 'Type:', file.type, 'Size:', file.size);
-
+    
             function fetchWithTimeout(url, options, timeout = 300000) {  // 5 minutes timeout
                 return Promise.race([
                     fetch(url, options),
@@ -316,13 +316,13 @@
                 statusDiv.textContent = `Error: ${error.message}`;
             });
         });
-
+    
         summarizeBtn.addEventListener('click', () => {
             const transcription = transcriptionTextarea.value;
             const apiKey = apiKeyInput.value;
-
+    
             statusDiv.textContent = 'Generating summary...';
-
+    
             fetch('/summarize', {
                 method: 'POST',
                 headers: {

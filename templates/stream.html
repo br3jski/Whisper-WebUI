@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Audio Transcription and Summarization</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+    <link rel="stylesheet" href="https://code.getmdl.io/1.3.0/material.indigo-pink.min.css">
+    <script defer src="https://code.getmdl.io/1.3.0/material.min.js"></script>
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+    <script src="https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        .page-content {
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        #transcription, #summary {
+            width: 100%;
+            height: 300px;
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            overflow-y: auto;
+        }
+        #summary {
+            background-color: #f9f9f9;
+        }
+        .controls {
+            margin-top: 20px;
+        }
+        #status {
+            margin-top: 10px;
+            font-weight: bold;
+        }
+        .mdl-textfield {
+            width: 300px;
+        }
+    </style>
+</head>
+<body>
+    <div class="mdl-layout mdl-js-layout mdl-layout--fixed-header">
+        <header class="mdl-layout__header">
+            <div class="mdl-layout__header-row">
+                <span class="mdl-layout-title">Real-Time Audio Transcription and Summarization</span>
+            </div>
+        </header>
+        <main class="mdl-layout__content">
+            <div class="page-content">
+                <div class="controls">
+                    <div class="mdl-textfield mdl-js-textfield mdl-textfield--floating-label">
+                        <input class="mdl-textfield__input" type="text" id="apiKey">
+                        <label class="mdl-textfield__label" for="apiKey">API Key</label>
+                    </div>
+                    <button id="saveApiKey" class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--primary">
+                        Save API Key
+                    </button>
+                    <button id="startButton" class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent">
+                        Start Transcription
+                    </button>
+                    <button id="stopButton" class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect" disabled>
+                        Stop Transcription
+                    </button>
+                    <button id="summarizeButton" class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect" disabled>
+                        Summarize
+                    </button>
+                </div>
+                <div id="status"></div>
+                <h3>Transcription</h3>
+                <div id="transcription"></div>
+                <h3>Summary</h3>
+                <div id="summary"></div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const { createFFmpeg, fetchFile } = FFmpeg;
+        let ffmpeg;
+        let audioContext, mediaRecorder, audioChunks = [];
+        let isRecording = false;
+        let transcriptionQueue = [];
+        let fullTranscription = '';
+        let analyser, silenceDetector;
+
+        const FRAGMENT_DURATION = 30000; // 30 seconds (maksymalny czas fragmentu)
+        const SILENCE_THRESHOLD = -50; // dB
+        const SILENCE_DURATION = 1000; // 1 sekunda ciszy
+
+        const apiKeyInput = document.getElementById('apiKey');
+        const saveApiKeyButton = document.getElementById('saveApiKey');
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const summarizeButton = document.getElementById('summarizeButton');
+        const statusDiv = document.getElementById('status');
+        const transcriptionDiv = document.getElementById('transcription');
+        const summaryDiv = document.getElementById('summary');
+
+        function saveApiKey() {
+            const apiKey = apiKeyInput.value.trim();
+            if (apiKey) {
+                localStorage.setItem('openai_api_key', apiKey);
+                statusDiv.textContent = 'API Key saved successfully.';
+            } else {
+                statusDiv.textContent = 'Please enter a valid API Key.';
+            }
+        }
+
+        function loadApiKey() {
+            const savedApiKey = localStorage.getItem('openai_api_key');
+            if (savedApiKey) {
+                apiKeyInput.value = savedApiKey;
+            }
+        }
+
+        async function loadFFmpeg() {
+            if (!ffmpeg) {
+                ffmpeg = createFFmpeg({ log: true });
+                await ffmpeg.load();
+                console.log('FFmpeg loaded');
+            }
+        }
+
+        async function startRealTimeTranscription() {
+            const apiKey = localStorage.getItem('openai_api_key');
+            if (!apiKey) {
+                statusDiv.textContent = 'Please save your API Key first.';
+                return;
+            }
+
+            await loadFFmpeg();
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 2048;
+
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const source = audioContext.createMediaStreamSource(stream);
+            source.connect(analyser);
+
+            mediaRecorder = new MediaRecorder(stream);
+
+            isRecording = true;
+            startButton.disabled = true;
+            stopButton.disabled = false;
+            summarizeButton.disabled = true;
+            statusDiv.textContent = 'Recording and transcribing...';
+
+            recordAudioFragments();
+            processAudioQueue();
+        }
+
+        function recordAudioFragments() {
+            if (!isRecording) return;
+
+            audioChunks = [];
+            mediaRecorder.start();
+
+            let silenceStart = null;
+            silenceDetector = setInterval(() => {
+                const dataArray = new Uint8Array(analyser.fftSize);
+                analyser.getByteTimeDomainData(dataArray);
+                const volume = getVolumeFromDataArray(dataArray);
+
+                if (volume <= SILENCE_THRESHOLD) {
+                    if (silenceStart === null) {
+                        silenceStart = Date.now();
+                    } else if (Date.now() - silenceStart >= SILENCE_DURATION) {
+                        mediaRecorder.stop();
+                        clearInterval(silenceDetector);
+                    }
+                } else {
+                    silenceStart = null;
+                }
+            }, 100);
+
+            setTimeout(() => {
+                if (mediaRecorder.state === 'recording') {
+                    mediaRecorder.stop();
+                    clearInterval(silenceDetector);
+                }
+            }, FRAGMENT_DURATION);
+
+            mediaRecorder.ondataavailable = (event) => {
+                audioChunks.push(event.data);
+            };
+
+            mediaRecorder.onstop = () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                transcriptionQueue.push(audioBlob);
+                recordAudioFragments(); // Kontynuuj nagrywanie
+            };
+        }
+
+        function getVolumeFromDataArray(dataArray) {
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+                sum += Math.abs(dataArray[i] - 128);
+            }
+            const average = sum / dataArray.length;
+            return 20 * Math.log10(average / 128);
+        }
+
+        async function processAudioQueue() {
+            while (isRecording) {
+                if (transcriptionQueue.length > 0) {
+                    const audioBlob = transcriptionQueue.shift();
+                    const compressedAudio = await compressAudio(audioBlob);
+                    const transcription = await transcribeAudio(compressedAudio);
+                    updateTranscription(transcription);
+                }
+                await new Promise(resolve => setTimeout(resolve, 1000)); // Wait a second before next check
+            }
+        }
+
+        async function compressAudio(audioBlob) {
+            const inputFileName = 'input.webm';
+            const outputFileName = 'output.webm';
+
+            ffmpeg.FS('writeFile', inputFileName, await fetchFile(audioBlob));
+
+            await ffmpeg.run(
+                '-i', inputFileName,
+                '-c:a', 'libopus',
+                '-b:a', '24k',
+                '-ar', '16000',
+                '-ac', '1',
+                outputFileName
+            );
+
+            const compressedData = ffmpeg.FS('readFile', outputFileName);
+            const compressedBlob = new Blob([compressedData.buffer], { type: 'audio/webm' });
+
+            ffmpeg.FS('unlink', inputFileName);
+            ffmpeg.FS('unlink', outputFileName);
+
+            return compressedBlob;
+        }
+
+        async function transcribeAudio(audioBlob) {
+            const formData = new FormData();
+            formData.append('audio', audioBlob, 'audio.webm');
+            formData.append('api_key', localStorage.getItem('openai_api_key'));
+
+            try {
+                const response = await fetch('/stream', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                return data.transcription;
+            } catch (error) {
+                console.error('Transcription error:', error);
+                statusDiv.textContent = `Transcription error: ${error.message}`;
+                return '';
+            }
+        }
+
+        function updateTranscription(newTranscription) {
+            fullTranscription += ' ' + newTranscription;
+            displayTranscription(fullTranscription);
+        }
+
+        function displayTranscription(text) {
+            transcriptionDiv.textContent = text;
+            transcriptionDiv.scrollTop = transcriptionDiv.scrollHeight;
+        }
+
+        function stopRealTimeTranscription() {
+            isRecording = false;
+            if (mediaRecorder) {
+                mediaRecorder.stop();
+            }
+            if (silenceDetector) {
+                clearInterval(silenceDetector);
+            }
+            startButton.disabled = false;
+            stopButton.disabled = true;
+            summarizeButton.disabled = false;
+            statusDiv.textContent = 'Transcription stopped. You can now summarize.';
+        }
+
+        async function summarizeTranscription() {
+            const apiKey = localStorage.getItem('openai_api_key');
+            if (!apiKey) {
+                statusDiv.textContent = 'Please save your API Key first.';
+                return;
+            }
+
+            try {
+                const response = await fetch('/summarize', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        transcription: fullTranscription,
+                        api_key: apiKey
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                displaySummary(data.summary);
+                statusDiv.textContent = 'Summarization completed.';
+            } catch (error) {
+                console.error('Summarization error:', error);
+                statusDiv.textContent = `Summarization error: ${error.message}`;
+            }
+        }
+
+        function displaySummary(markdown) {
+            summaryDiv.innerHTML = marked.parse(markdown);
+        }
+
+        saveApiKeyButton.addEventListener('click', saveApiKey);
+        startButton.addEventListener('click', startRealTimeTranscription);
+        stopButton.addEventListener('click', stopRealTimeTranscription);
+        summarizeButton.addEventListener('click', summarizeTranscription);
+
+        // Initial setup
+        loadFFmpeg();
+        loadApiKey();
+    </script>
+</body>
+</html>

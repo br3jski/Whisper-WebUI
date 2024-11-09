@@ -62,6 +62,37 @@ def index():
             return jsonify({'error': f"Wystąpił nieoczekiwany błąd: {str(e)}"}), 500
     return render_template('index.html')
 
+@app.route('/stream', methods=['GET', 'POST'])
+def stream():
+    if request.method == 'POST':
+        try:
+            if 'audio' not in request.files:
+                return jsonify({'error': 'Brak pliku audio.'}), 400
+            file = request.files['audio']
+            if file.filename == '':
+                return jsonify({'error': 'Nie wybrano pliku.'}), 400
+            if file and allowed_file(file.filename):
+                filename = secure_filename(file.filename)
+                file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                file.save(file_path)
+
+                api_key = request.form.get('api_key')
+                if not api_key:
+                    return jsonify({'error': 'Brak klucza API.'}), 401
+
+                transcription = transcribe_audio(file_path, api_key)
+                
+                # Usuń plik po transkrypcji
+                os.remove(file_path)
+                
+                return jsonify({'transcription': transcription})
+            else:
+                return jsonify({'error': 'Niedozwolony typ pliku.'}), 400
+        except Exception as e:
+            app.logger.error(f"Wystąpił błąd w /stream: {str(e)}")
+            return jsonify({'error': f"Wystąpił nieoczekiwany błąd: {str(e)}"}), 500
+    return render_template('stream.html')
+
 @app.route('/summarize', methods=['POST'])
 def summarize():
     data = request.json

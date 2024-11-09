@@ -268,6 +268,10 @@
 
             const formData = new FormData(form);
 
+            // Log the file being uploaded
+            const file = formData.get('audio');
+            console.log('Uploading file:', file.name, 'Type:', file.type, 'Size:', file.size);
+
             function fetchWithTimeout(url, options, timeout = 300000) {  // 5 minutes timeout
                 return Promise.race([
                     fetch(url, options),
@@ -281,8 +285,11 @@
                 body: formData
             })
             .then(response => {
+                console.log('Response status:', response.status);
                 if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                    return response.text().then(text => {
+                        throw new Error(`HTTP error! status: ${response.status}, message: ${text}`);
+                    });
                 }
                 return response.json();
             })
@@ -296,6 +303,7 @@
                 }
             })
             .catch(error => {
+                console.error('Error:', error);
                 statusDiv.textContent = `Error: ${error.message}`;
             });
         });

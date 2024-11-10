@@ -98,6 +98,7 @@ def summarize():
     data = request.json
     transcription = data.get('transcription')
     api_key = data.get('api_key')
+    model = data.get('model', 'gpt-4o')  # domyślnie użyj gpt-4o, jeśli nie podano modelu
 
     if not transcription or not api_key:
         return jsonify({'error': 'Brak transkrypcji lub klucza API.'}), 400
@@ -105,7 +106,7 @@ def summarize():
     client = OpenAI(api_key=api_key)
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model=model,  # użyj wybranego modelu
             messages=[
                 {"role": "system", "content": "Ty jesteś asystentem, który specjalizuje się w tworzeniu czytelnych i zwięzłych notatek akademickich. Twoim celem jest przekształcenie transkrypcji wykładów lub innych dokumentów akademickich w formę, która ułatwi naukę i przygotowanie do egzaminów. Wspierasz tworzenie map myśli, list punktowanych oraz innych czytelnych formatów. Zachowaj kluczowe informacje i porządkuj dane w logiczne struktury."},
                 {"role": "user", "content": f"Jestem w trakcie nauki do egzaminu i potrzebuję czytelnych notatek bazujących na poniższej transkrypcji. Proszę przekształć treść w zwięzłą formę, która będzie przydatna do powtórek, taką jak mapa myśli lub lista punktów. Oto transkrypcja, z której należy stworzyć notatki:\n\n{transcription}"}

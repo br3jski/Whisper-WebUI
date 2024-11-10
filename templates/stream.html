@@ -33,12 +33,15 @@
         .controls {
             margin-top: 20px;
         }
-        #status {
+        #status, #tokenCount, #costEstimate, #whisperCost {
             margin-top: 10px;
             font-weight: bold;
         }
         .mdl-textfield {
             width: 300px;
+        }
+        #modelSelect {
+            margin-top: 10px;
         }
     </style>
 </head>
@@ -68,8 +71,18 @@
                     <button id="summarizeButton" class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect" disabled>
                         Summarize
                     </button>
+                    <div class="mdl-textfield mdl-js-textfield mdl-textfield--floating-label">
+                        <select class="mdl-textfield__input" id="modelSelect">
+                            <option value="gpt-4o">GPT-4o</option>
+                            <option value="gpt-1o">GPT-1o</option>
+                        </select>
+                        <label class="mdl-textfield__label" for="modelSelect">Choose Model</label>
+                    </div>
                 </div>
                 <div id="status"></div>
+                <div id="tokenCount"></div>
+                <div id="costEstimate"></div>
+                <div id="whisperCost"></div>
                 <h3>Transcription</h3>
                 <div id="transcription"></div>
                 <h3>Summary</h3>
@@ -86,6 +99,9 @@
         let transcriptionQueue = [];
         let fullTranscription = '';
         let analyser, silenceDetector;
+        let totalTokens = 0;
+        let recordingStartTime;
+        let totalRecordingTime = 0;
 
         const FRAGMENT_DURATION = 30000; // 30 seconds (maksymalny czas fragmentu)
         const SILENCE_THRESHOLD = -50; // dB
@@ -99,6 +115,10 @@
         const statusDiv = document.getElementById('status');
         const transcriptionDiv = document.getElementById('transcription');
         const summaryDiv = document.getElementById('summary');
+        const modelSelect = document.getElementById('modelSelect');
+        const tokenCountDiv = document.getElementById('tokenCount');
+        const costEstimateDiv = document.getElementById('costEstimate');
+        const whisperCostDiv = document.getElementById('whisperCost');
 
         function saveApiKey() {
             const apiKey = apiKeyInput.value.trim();
@@ -148,6 +168,7 @@
             stopButton.disabled = false;
             summarizeButton.disabled = true;
             statusDiv.textContent = 'Recording and transcribing...';
+            recordingStartTime = Date.now();
 
             recordAudioFragments();
             processAudioQueue();
@@ -267,9 +288,48 @@
             }
         }
 
+        function estimateTokens(text) {
+            return Math.ceil(text.length / 4);
+        }
+
+        function updateTokenCount(newTranscription) {
+            const newTokens = estimateTokens(newTranscription);
+            totalTokens += newTokens;
+            tokenCountDiv.textContent = `Estimated total tokens: ${totalTokens}`;
+            updateCostEstimate();
+        }
+
+        function estimateWhisperCost(durationInSeconds) {
+            const durationInMinutes = durationInSeconds / 60;
+            return Math.ceil(durationInMinutes) * 0.006; // $0.006 per minute, rounded up
+        }
+
+        function updateCostEstimate() {
+            const model = modelSelect.value;
+            let inputCost, outputCost;
+            if (model === 'gpt-4o') {
+                inputCost = 2.50 / 1000000; // $2.50 per 1M tokens
+                outputCost = 10.00 / 1000000; // $10.00 per 1M tokens
+            } else { // gpt-1o
+                inputCost = 15.00 / 1000000; // $15.00 per 1M tokens
+                outputCost = 60.00 / 1000000; // $60.00 per 1M tokens
+            }
+
+            const summaryCost = totalTokens * inputCost; // Cost for input tokens (transcription)
+            const estimatedOutputTokens = Math.ceil(totalTokens * 0.2); // Assuming summary is about 20% of input
+            const generationCost = estimatedOutputTokens * outputCost; // Cost for output tokens (summary generation)
+            const totalCost = summaryCost + generationCost;
+
+            costEstimateDiv.textContent = `Estimated summarization cost: $${totalCost.toFixed(4)} (Summary input: $${summaryCost.toFixed(4)}, Summary generation: $${generationCost.toFixed(4)})`;
+
+            const whisperCost = estimateWhisperCost(totalRecordingTime);
+            whisperCostDiv.textContent = `Estimated Whisper transcription cost: $${whisperCost.toFixed(4)} (${Math.ceil(totalRecordingTime / 60)} minutes)`;
+        }
+
         function updateTranscription(newTranscription) {
             fullTranscription += ' ' + newTranscription;
             displayTranscription(fullTranscription);
+            updateTokenCount(newTranscription);
         }
 
         function displayTranscription(text) {
@@ -285,10 +345,12 @@
             if (silenceDetector) {
                 clearInterval(silenceDetector);
             }
+            totalRecordingTime += (Date.now() - recordingStartTime) / 1000; // Convert to seconds
             startButton.disabled = false;
             stopButton.disabled = true;
             summarizeButton.disabled = false;
             statusDiv.textContent = 'Transcription stopped. You can now summarize.';
+            updateCostEstimate();
         }
 
         async function summarizeTranscription() {
@@ -298,6 +360,8 @@
                 return;
             }
 
+            const model = modelSelect.value;
+
             try {
                 const response = await fetch('/summarize', {
                     method: 'POST',
@@ -306,7 +370,8 @@
                     },
                     body: JSON.stringify({
                         transcription: fullTranscription,
-                        api_key: apiKey
+                        api_key: apiKey,
+                        model: model
                     })
                 });
 
@@ -335,6 +400,7 @@
         startButton.addEventListener('click', startRealTimeTranscription);
         stopButton.addEventListener('click', stopRealTimeTranscription);
         summarizeButton.addEventListener('click', summarizeTranscription);
+        modelSelect.addEventListener('change', updateCostEstimate);
 
         // Initial setup
         loadFFmpeg();
